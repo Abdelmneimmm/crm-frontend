@@ -8,7 +8,6 @@ import { clearToken } from '../../config/api';
 export default function TabsLayout() {
   var router = useRouter();
   var { theme, darkMode, toggleDarkMode, setUser, user } = useApp();
-  var isAdmin = user && user.role === 'admin';
 
   var handleLogout = function() {
     clearToken();
@@ -72,7 +71,6 @@ export default function TabsLayout() {
         options={{
           title: 'Agents',
           tabBarIcon: function({ color, size }) { return <Ionicons name="people-circle" size={size} color={color} />; },
-          href: isAdmin ? '/agents' : null,
         }}
       />
     </Tabs>
