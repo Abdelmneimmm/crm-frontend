@@ -22,7 +22,7 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "output": "static",
+  "output": "single",
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
@@ -41,8 +41,12 @@
       ]
     ],
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
-    }
+  "typedRoutes": true,
+  "reactCompiler": true
+},
+"web": {
+  "output": "single",
+  "favicon": "./assets/images/favicon.png"
+}
   }
 }
