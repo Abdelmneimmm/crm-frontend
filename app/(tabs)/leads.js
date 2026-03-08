@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
-  Alert, Modal, TextInput, RefreshControl, ActivityIndicator, ScrollView
+  Alert, Modal, TextInput, RefreshControl, ActivityIndicator, ScrollView, Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../config/api';
@@ -24,6 +24,10 @@ export default function LeadsScreen() {
   var [filterStatus, setFilterStatus] = useState('all');
   var [form, setForm] = useState({ name: '', email: '', phone: '', source: '', status: 'new', notes: '' });
   var [activityForm, setActivityForm] = useState({ type: 'note', title: '', description: '', meeting_date: '' });
+  var [uploadModal, setUploadModal] = useState(false);
+  var [uploadResult, setUploadResult] = useState(null);
+  var [uploading, setUploading] = useState(false);
+  var fileInputRef = useRef(null);
 
   var isAdmin = user && user.role === 'admin';
 
@@ -210,6 +214,54 @@ export default function LeadsScreen() {
     return '#999';
   };
 
+  var parseCSV = function(text) {
+    var lines = text.split('\n').filter(function(l) { return l.trim().length > 0; });
+    if (lines.length < 2) return [];
+    var headers = lines[0].split(',').map(function(h) { return h.trim().toLowerCase().replace(/"/g, ''); });
+    var results = [];
+    for (var i = 1; i < lines.length; i++) {
+      var values = lines[i].split(',').map(function(v) { return v.trim().replace(/"/g, ''); });
+      var obj = {};
+      headers.forEach(function(h, idx) { obj[h] = values[idx] || ''; });
+      if (obj.name) results.push(obj);
+    }
+    return results;
+  };
+
+  var handleFileUpload = function(event) {
+    var file = event.target.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var text = e.target.result;
+      var leads = parseCSV(text);
+      if (leads.length === 0) {
+        Alert.alert('خطأ', 'الملف فاضي أو الفورمات غلط. تأكد إن أول سطر فيه: name,email,phone,source,status,notes');
+        return;
+      }
+      Alert.alert('تأكيد', 'هتضيف ' + leads.length + ' Lead. متأكد؟', [
+        { text: 'لا', style: 'cancel' },
+        { text: 'أيوا أضف', onPress: function() { uploadLeads(leads); } },
+      ]);
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  var uploadLeads = async function(leadsData) {
+    setUploading(true);
+    try {
+      var res = await api.post('/leads/bulk', { leads: leadsData });
+      setUploadResult(res.data);
+      setUploadModal(true);
+      fetchLeads();
+    } catch (err) {
+      Alert.alert('خطأ', err.response?.data?.error || 'مشكلة في الرفع');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   var statuses = ['all', 'new', 'contacted', 'qualified', 'converted', 'lost'];
 
   if (loading) {
@@ -302,6 +354,63 @@ export default function LeadsScreen() {
       <TouchableOpacity style={[styles.fab, { backgroundColor: theme.primary }]} onPress={openAddModal}>
         <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
+
+      {/* Upload CSV Button (Web only) */}
+      {Platform.OS === 'web' ? (
+        <View>
+          <TouchableOpacity
+            style={[styles.fabUpload, { backgroundColor: uploading ? theme.textMuted : theme.success }]}
+            onPress={function() { if (fileInputRef.current) fileInputRef.current.click(); }}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Ionicons name="cloud-upload" size={24} color="#fff" />
+            )}
+          </TouchableOpacity>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,.txt"
+            style={{ display: 'none' }}
+            onChange={handleFileUpload}
+          />
+        </View>
+      ) : null}
+
+      {/* Upload Result Modal */}
+      <Modal visible={uploadModal} animationType="fade" transparent>
+        <View style={[styles.modalOverlay, { backgroundColor: theme.modalBg }]}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <View style={{ alignItems: 'center', marginBottom: 20 }}>
+              <Ionicons name="checkmark-circle" size={50} color={theme.success} />
+              <Text style={[styles.modalTitle, { color: theme.text, marginTop: 10 }]}>نتيجة الرفع</Text>
+            </View>
+            {uploadResult ? (
+              <View>
+                <Text style={[styles.uploadResultText, { color: theme.success }]}>
+                  تم إضافة {uploadResult.added} Lead بنجاح
+                </Text>
+                {uploadResult.errors && uploadResult.errors.length > 0 ? (
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={[styles.uploadResultText, { color: theme.danger }]}>
+                      أخطاء ({uploadResult.errors.length}):
+                    </Text>
+                    {uploadResult.errors.map(function(err, i) {
+                      return <Text key={i} style={{ color: theme.textMuted, fontSize: 12, marginTop: 4 }}>{err}</Text>;
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+            <TouchableOpacity style={[styles.closeBtn, { backgroundColor: theme.primary, marginTop: 20 }]}
+              onPress={function() { setUploadModal(false); setUploadResult(null); }}>
+              <Text style={[styles.closeText, { color: '#fff' }]}>تمام</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* ===== Detail Modal ===== */}
       <Modal visible={detailModal} animationType="slide" transparent>
@@ -610,6 +719,12 @@ var styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 5,
   },
+  fabUpload: {
+    position: 'absolute', bottom: 85, right: 20, width: 48, height: 48, borderRadius: 24,
+    justifyContent: 'center', alignItems: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4, elevation: 5,
+  },
+  uploadResultText: { fontSize: 16, fontWeight: '600', textAlign: 'center' },
   modalOverlay: { flex: 1, justifyContent: 'center', padding: 16 },
   modalContent: { borderRadius: 20, padding: 24, maxHeight: '85%' },
   modalTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
